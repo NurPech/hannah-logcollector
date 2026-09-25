@@ -5,6 +5,9 @@
 -->
 ## **WORK IN PROGRESS**
 
+## 0.2.1
+* Fixed: include config.example.yaml in release
+
 ## 0.2.0
 * Added: First public release. Mirror to github.com and publishing container to quay.io
 

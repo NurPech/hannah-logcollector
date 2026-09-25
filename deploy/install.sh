@@ -118,10 +118,16 @@ if ! id "$SERVICE_USER" &>/dev/null; then
     useradd -r -s /sbin/nologin "$SERVICE_USER"
 fi
 
+# ── Config directory ──────────────────────────────────────────────────────────
 if [[ ! -d "$CONFIG_DIR" ]]; then
     mkdir -p "$CONFIG_DIR"
     chown "${SERVICE_USER}:${SERVICE_USER}" "$CONFIG_DIR"
-    info "Created ${CONFIG_DIR} — place your config.yaml there (db.path: ${DATA_DIR}/logs.db)."
+    info "Created ${CONFIG_DIR} — place your config.yaml there."
+fi
+
+if [[ -f "${TMPDIR}/config.example.yaml" ]]; then
+    cp "${TMPDIR}/config.example.yaml" "${CONFIG_DIR}/config.example.yaml"
+    ok "Config template refreshed at ${CONFIG_DIR}/config.example.yaml"
 fi
 
 if [[ ! -d "$DATA_DIR" ]]; then
