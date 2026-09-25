@@ -1,0 +1,22 @@
+# Build artifacts
+/hannah-logcollector
+/hannah-logcollector-linux-amd64
+/hannah-logcollector-linux-arm64
+/logcollector
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# Config (may contain local overrides / sensitive data)
+config.yaml
+config.yml
+
+# Go
+vendor/
+
+.vscode/
+.claude/
+.mcp.json
+.env

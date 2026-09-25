@@ -1,0 +1,41 @@
+hannah:
+  # Hannah's gRPC address. The collector registers there so Hannah can tell all
+  # components where to ship their logs.
+  # Override with env var HANNAH_LOGCOLLECTOR_HANNAH_ADDRESS.
+  address: "localhost:50051"
+
+server:
+  # Address the LogService listens on.
+  # Override with env var HANNAH_LOGCOLLECTOR_SERVER_LISTEN.
+  listen: ":50060"
+  # Host announced to Hannah. Leave empty to let Hannah use the address the
+  # collector connects from — set it when that address isn't reachable for the
+  # other components (e.g. behind NAT or a Docker bridge network).
+  # Override with env var HANNAH_LOGCOLLECTOR_SERVER_ADVERTISE_HOST.
+  advertise_host: ""
+  # Port announced to Hannah. 0 = the port from `listen`.
+  # Override with env var HANNAH_LOGCOLLECTOR_SERVER_ADVERTISE_PORT.
+  advertise_port: 0
+  # Name of this collector. A second collector with the same name replaces the first.
+  # Override with env var HANNAH_LOGCOLLECTOR_SERVER_INSTANCE.
+  instance: "default"
+
+db:
+  # Path to the SQLite database file. Export temp files are written to the same directory.
+  # Override with env var HANNAH_LOGCOLLECTOR_DB_PATH.
+  path: "/opt/hannah/logcollector/logs.db"
+
+retention:
+  # Logs older than this are deleted.
+  # Override with env var HANNAH_LOGCOLLECTOR_RETENTION_DAYS.
+  days: 7
+  # Upper bound for the stored logs; the oldest entries go first once it's reached.
+  # A typical installation needs far less for 7 days — this is a safety net
+  # against a component flooding the log.
+  # Override with env var HANNAH_LOGCOLLECTOR_RETENTION_MAX_SIZE_MB.
+  max_size_mb: 256
+
+log:
+  # Log level: debug | info | warn | error
+  # Override with env var HANNAH_LOGCOLLECTOR_LOG_LEVEL.
+  level: "info"

@@ -1,0 +1,21 @@
+[Unit]
+Description=Hannah Log Collector
+Documentation=https://dev.kernstock.net/gessinger/voice/hannah-logcollector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hannah-logcollector --config /etc/hannah-logcollector/config.yaml
+Restart=on-failure
+RestartSec=5s
+User=hannah
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/hannah-logcollector
+# SQLite database and export temp files (db.path must point here)
+ReadWritePaths=/opt/hannah/logcollector
+
+[Install]
+WantedBy=multi-user.target
