@@ -125,8 +125,8 @@ if [[ ! -d "$CONFIG_DIR" ]]; then
     info "Created ${CONFIG_DIR} — place your config.yaml there."
 fi
 
-if [[ -f "${TMPDIR}/config.example.yaml" ]]; then
-    cp "${TMPDIR}/config.example.yaml" "${CONFIG_DIR}/config.example.yaml"
+if [[ -f "${TMP_DIR}/config.example.yaml" ]]; then
+    cp "${TMP_DIR}/config.example.yaml" "${CONFIG_DIR}/config.example.yaml"
     ok "Config template refreshed at ${CONFIG_DIR}/config.example.yaml"
 fi
 
