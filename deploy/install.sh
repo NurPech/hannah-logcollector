@@ -137,9 +137,13 @@ if [[ ! -d "$DATA_DIR" ]]; then
 fi
 
 # Prefer the unit from the release archive; fall back to one next to install.sh (repo checkout).
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# When piped into bash (curl ... | bash) there is no script file, so BASH_SOURCE[0] is unset.
+UNIT_DIRS=("$TMP_DIR")
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+    UNIT_DIRS+=("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")
+fi
 UNIT_SRC=""
-for dir in "$TMP_DIR" "$SCRIPT_DIR"; do
+for dir in "${UNIT_DIRS[@]}"; do
     if [[ -f "${dir}/${SERVICE_NAME}.service" ]]; then
         UNIT_SRC="${dir}/${SERVICE_NAME}.service"
         break

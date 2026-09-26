@@ -5,6 +5,9 @@
 -->
 ## **WORK IN PROGRESS**
 
+## 0.2.3
+* Fixed: `install.sh` aborted with `BASH_SOURCE[0]: unbound variable` when piped into bash (`curl ... | bash`), right before installing the systemd unit. The fallback to a unit file next to the script is now only used when the script runs from a file
+
 ## 0.2.2
 * Fixed: the container image on quay.io was only published per architecture (`<version>-amd64`/`-arm64`), so `quay.io/m1kad0/hannah-logcollector:latest` and `:<version>` didn't exist. Both are now published as multi-arch images
 * Fixed: `install.sh` aborted right after installing the binary on hosts without `TMPDIR` set (the usual case on Linux), so neither the config template nor the systemd unit got installed
