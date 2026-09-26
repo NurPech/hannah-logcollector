@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -71,6 +72,11 @@ func New(path string) (*Store, error) {
 
 	db.SetMaxOpenConns(1) // SQLite supports only one writer at a time
 
+	if err := setTempDir(db, filepath.Dir(path)); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("setting temp directory: %w", err)
+	}
+
 	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
@@ -81,6 +87,20 @@ func New(path string) (*Store, error) {
 
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// setTempDir points SQLite's own temp files (e.g. an export's ORDER BY spilling to
+// disk) at dir. Its defaults (/var/tmp, /tmp, ...) are read-only under the unit's
+// ProtectSystem=strict and don't exist in the scratch image, so they live next to
+// the database like our own temp files. The setting is process-wide in SQLite.
+func setTempDir(db *sql.DB, dir string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	// PRAGMA doesn't take bound parameters — quote as an SQL string literal.
+	_, err = db.Exec(`PRAGMA temp_store_directory = '` + strings.ReplaceAll(abs, `'`, `''`) + `'`)
+	return err
 }
 
 func migrate(db *sql.DB) error {

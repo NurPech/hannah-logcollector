@@ -138,3 +138,46 @@ func TestPruneBySizeRemovesOldestFirst(t *testing.T) {
 	assert.Equal(t, int64(4999), stats[0].NewestMs, "newest entries survive")
 	assert.Positive(t, stats[0].OldestMs, "oldest entries were removed first")
 }
+
+func TestNewPutsSQLiteTempFilesNextToDatabase(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(filepath.Join(dir, "logs.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { s.Close() })
+
+	var tempDir string
+	require.NoError(t, s.db.QueryRow(`PRAGMA temp_store_directory`).Scan(&tempDir))
+	want, err := filepath.Abs(dir)
+	require.NoError(t, err)
+	assert.Equal(t, want, tempDir)
+}
+
+func TestEachEntrySortSpillingToDisk(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	// Tiny page cache so the export's ORDER BY can't stay in memory and has to use
+	// SQLite's temp files — the path that failed with "disk I/O error (6410)".
+	_, err := s.db.Exec(`PRAGMA cache_size = 2`)
+	require.NoError(t, err)
+
+	src, _ := s.UpsertSource(ctx, "core", "pi", "0.85.0")
+	msg := strings.Repeat("x", 1024)
+	const n = 5000
+	entries := make([]Entry, 0, n)
+	for i := 0; i < n; i++ {
+		entries = append(entries, Entry{SourceID: src, TimestampMs: int64((i * 7919) % n), Message: msg})
+	}
+	require.NoError(t, s.InsertEntries(ctx, entries))
+
+	var got int
+	last := int64(-1)
+	// A time range like a real export's: the planner then walks entries_ts and has to
+	// sort by source afterwards.
+	require.NoError(t, s.EachEntry(ctx, Filter{SinceMs: 1, UntilMs: n}, func(e Entry) error {
+		assert.GreaterOrEqual(t, e.TimestampMs, last)
+		last = e.TimestampMs
+		got++
+		return nil
+	}))
+	assert.Equal(t, n-1, got) // ts 0 is outside the range
+}

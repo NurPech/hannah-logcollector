@@ -5,6 +5,9 @@
 -->
 ## **WORK IN PROGRESS**
 
+## 0.2.4
+* Fixed: log exports failed with `disk I/O error (6410)` once the database had grown large enough. SQLite couldn't find a writable directory for its temp files under the systemd unit's filesystem protection (and the container image has none at all). Its temp files now live next to the database, like the export's own temp files
+
 ## 0.2.3
 * Fixed: `install.sh` aborted with `BASH_SOURCE[0]: unbound variable` when piped into bash (`curl ... | bash`), right before installing the systemd unit. The fallback to a unit file next to the script is now only used when the script runs from a file
 
