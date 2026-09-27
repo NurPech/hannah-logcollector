@@ -3,41 +3,62 @@ package hannah
 import (
 	"context"
 	"net"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
-	pb "github.com/NurPech/hannah-proto-go/v4"
+	legacypb "github.com/NurPech/hannah-proto-go/v4"
+	pb "github.com/NurPech/hannah-proto-go/v4/hannahv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gitlab.com/gessinger/hannah-grpc-lib/go/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 )
 
-// fakeHannah records LogCollectorConnect registrations.
-type fakeHannah struct {
-	pb.UnimplementedHannahServiceServer
-
+// recorder collects what a fake Core received, whichever API generation it serves.
+type recorder struct {
 	mu            sync.Mutex
 	registrations []*pb.LogCollectorRegister
 	versions      []string
+	services      []string
 	dropAfterAck  bool
 }
 
-func (f *fakeHannah) LogCollectorConnect(stream grpc.BidiStreamingServer[pb.LogCollectorMessage, pb.LogCollectorCommand]) error {
-	md, _ := metadata.FromIncomingContext(stream.Context())
+func (r *recorder) record(ctx context.Context, service string, reg *pb.LogCollectorRegister) bool {
+	md, _ := metadata.FromIncomingContext(ctx)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.registrations = append(r.registrations, reg)
+	r.versions = append(r.versions, md.Get(client.ProtoVersionMetadataKey)...)
+	r.services = append(r.services, service)
+	return r.dropAfterAck
+}
 
+func (r *recorder) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.registrations)
+}
+
+// fakeHannah is a Core that serves hannah.v1.
+type fakeHannah struct {
+	pb.UnimplementedHannahServiceServer
+	rec *recorder
+}
+
+func (f *fakeHannah) GetSatellites(context.Context, *pb.Empty) (*pb.GetSatellitesResponse, error) {
+	return &pb.GetSatellitesResponse{}, nil
+}
+
+func (f *fakeHannah) LogCollectorConnect(stream grpc.BidiStreamingServer[pb.LogCollectorMessage, pb.LogCollectorCommand]) error {
 	msg, err := stream.Recv()
 	if err != nil {
 		return err
 	}
-	f.mu.Lock()
-	f.registrations = append(f.registrations, msg.GetRegister())
-	f.versions = append(f.versions, md.Get(ProtoVersionMetadataKey)...)
-	drop := f.dropAfterAck
-	f.mu.Unlock()
-
+	drop := f.rec.record(stream.Context(), client.CurrentService, msg.GetRegister())
 	if err := stream.Send(&pb.LogCollectorCommand{
 		Command: &pb.LogCollectorCommand_Registered{Registered: &pb.LogCollectorRegistered{}},
 	}); err != nil {
@@ -50,50 +71,80 @@ func (f *fakeHannah) LogCollectorConnect(stream grpc.BidiStreamingServer[pb.LogC
 	return nil
 }
 
-func (f *fakeHannah) count() int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return len(f.registrations)
+// legacyHannah is a Core too old for hannah.v1: it only serves the unversioned API.
+type legacyHannah struct {
+	legacypb.UnimplementedHannahServiceServer
+	rec *recorder
 }
 
-func startFake(t *testing.T, fake *fakeHannah) grpc.DialOption {
+func (f *legacyHannah) LogCollectorConnect(stream grpc.BidiStreamingServer[legacypb.LogCollectorMessage, legacypb.LogCollectorCommand]) error {
+	msg, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+	r := msg.GetRegister()
+	f.rec.record(stream.Context(), client.LegacyService, &pb.LogCollectorRegister{
+		Instance: r.GetInstance(), Host: r.GetHost(), Port: r.GetPort(), Version: r.GetVersion(),
+	})
+	if err := stream.Send(&legacypb.LogCollectorCommand{
+		Command: &legacypb.LogCollectorCommand_Registered{Registered: &legacypb.LogCollectorRegistered{}},
+	}); err != nil {
+		return err
+	}
+	<-stream.Context().Done()
+	return nil
+}
+
+func startFake(t *testing.T, register func(*grpc.Server)) grpc.DialOption {
 	t.Helper()
 	lis := bufconn.Listen(1 << 20)
 	srv := grpc.NewServer()
-	pb.RegisterHannahServiceServer(srv, fake)
+	register(srv)
 	go srv.Serve(lis)
 	t.Cleanup(srv.Stop)
 	return grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) })
 }
 
 func TestRegistersWithHannah(t *testing.T) {
-	fake := &fakeHannah{}
-	dialer := startFake(t, fake)
+	for _, tc := range []struct {
+		name     string
+		register func(*grpc.Server, *recorder)
+		service  string
+	}{
+		{"hannah.v1", func(s *grpc.Server, r *recorder) { pb.RegisterHannahServiceServer(s, &fakeHannah{rec: r}) }, client.CurrentService},
+		{"Core without hannah.v1", func(s *grpc.Server, r *recorder) { legacypb.RegisterHannahServiceServer(s, &legacyHannah{rec: r}) }, client.LegacyService},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &recorder{}
+			dialer := startFake(t, func(s *grpc.Server) { tc.register(s, rec) })
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	client := New("passthrough:///bufnet", Registration{Instance: "main", Host: "10.0.0.5", Port: 50060, Version: "0.1.0"}, dialer)
-	go client.Run(ctx)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			c := New("passthrough:///bufnet", Registration{Instance: "main", Host: "10.0.0.5", Port: 50060, Version: "0.1.0"}, dialer)
+			go c.Run(ctx)
 
-	require.Eventually(t, func() bool { return fake.count() == 1 }, 2*time.Second, 10*time.Millisecond)
-	fake.mu.Lock()
-	defer fake.mu.Unlock()
-	reg := fake.registrations[0]
-	assert.Equal(t, "main", reg.GetInstance())
-	assert.Equal(t, "10.0.0.5", reg.GetHost())
-	assert.Equal(t, int32(50060), reg.GetPort())
-	assert.Equal(t, []string{protoVersion}, fake.versions)
+			require.Eventually(t, func() bool { return rec.count() == 1 }, 2*time.Second, 10*time.Millisecond)
+			rec.mu.Lock()
+			defer rec.mu.Unlock()
+			reg := rec.registrations[0]
+			assert.Equal(t, "main", reg.GetInstance())
+			assert.Equal(t, "10.0.0.5", reg.GetHost())
+			assert.Equal(t, int32(50060), reg.GetPort())
+			assert.Equal(t, []string{strconv.Itoa(legacypb.ProtoVersion)}, rec.versions)
+			assert.Equal(t, []string{tc.service}, rec.services)
+		})
+	}
 }
 
 func TestReregistersAfterStreamDrops(t *testing.T) {
-	fake := &fakeHannah{dropAfterAck: true}
-	dialer := startFake(t, fake)
+	rec := &recorder{dropAfterAck: true}
+	dialer := startFake(t, func(s *grpc.Server) { pb.RegisterHannahServiceServer(s, &fakeHannah{rec: rec}) })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	client := New("passthrough:///bufnet", Registration{Instance: "main"}, dialer)
-	go client.Run(ctx)
+	c := New("passthrough:///bufnet", Registration{Instance: "main"}, dialer)
+	go c.Run(ctx)
 
 	// First reconnect happens after the 1 s backoff.
-	require.Eventually(t, func() bool { return fake.count() >= 2 }, 3*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool { return rec.count() >= 2 }, 3*time.Second, 20*time.Millisecond)
 }

@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	pb "github.com/NurPech/hannah-proto-go/v4"
+	pb "github.com/NurPech/hannah-proto-go/v4/hannahv1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -33,6 +33,20 @@ type Server struct {
 
 func New(st *store.Store, w *store.Writer, tempDir string) *Server {
 	return &Server{store: st, writer: w, tempDir: tempDir, now: time.Now}
+}
+
+// LegacyServiceName is the unversioned LogService (N−1), still used by components on
+// an older logging library.
+const LegacyServiceName = "hannah.LogService"
+
+// Register serves impl as hannah.v1.LogService and as the unversioned hannah.LogService
+// (N−1, hannah-proto#11). The packages are wire-identical, only the package name in the
+// path differs, so the N−1 path reuses the v1 handlers.
+func Register(s grpc.ServiceRegistrar, impl pb.LogServiceServer) {
+	pb.RegisterLogServiceServer(s, impl)
+	legacy := pb.LogService_ServiceDesc
+	legacy.ServiceName = LegacyServiceName
+	s.RegisterService(&legacy, impl)
 }
 
 // Ship receives one component's log stream: a ShipHello first, then entries and gaps.

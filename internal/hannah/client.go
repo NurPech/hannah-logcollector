@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"time"
 
-	pb "github.com/NurPech/hannah-proto-go/v4"
+	pb "github.com/NurPech/hannah-proto-go/v4/hannahv1"
+	"gitlab.com/gessinger/hannah-grpc-lib/go/client"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Registration is what the collector announces about itself.
@@ -29,13 +29,9 @@ type Client struct {
 }
 
 // New creates a client. extraDialOpts are appended to the defaults (used by tests).
+// The defaults attach x-proto-version and x-compat-version (hannah-grpc-lib).
 func New(hannahAddr string, reg Registration, extraDialOpts ...grpc.DialOption) *Client {
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithChainUnaryInterceptor(versionUnaryInterceptor),
-		grpc.WithChainStreamInterceptor(versionStreamInterceptor),
-	}
-	return &Client{hannahAddr: hannahAddr, reg: reg, dialOpts: append(opts, extraDialOpts...)}
+	return &Client{hannahAddr: hannahAddr, reg: reg, dialOpts: append(client.DialOptions(), extraDialOpts...)}
 }
 
 // Run registers with Hannah and re-registers on failure. Blocks until ctx is cancelled.
@@ -51,7 +47,7 @@ func (c *Client) Run(ctx context.Context) {
 		if registered {
 			backoff = time.Second // the connection worked — start over with a short delay
 		}
-		slog.Warn("Hannah connection lost, reconnecting", "err", err, "backoff", backoff)
+		slog.Warn("Hannah connection lost, reconnecting", "addr", c.hannahAddr, "err", err, "backoff", backoff)
 
 		select {
 		case <-ctx.Done():
@@ -74,7 +70,9 @@ func (c *Client) connect(ctx context.Context) (bool, error) {
 	}
 	defer conn.Close()
 
-	stream, err := pb.NewHannahServiceClient(conn).LogCollectorConnect(ctx)
+	// hannah.v1, falling back to the unversioned API when Core is too old for it. A new
+	// connection per attempt means the probe runs again after every reconnect.
+	stream, err := pb.NewHannahServiceClient(client.New(conn, nil)).LogCollectorConnect(ctx)
 	if err != nil {
 		return false, err
 	}

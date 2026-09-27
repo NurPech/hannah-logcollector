@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	pb "github.com/NurPech/hannah-proto-go/v4"
 	"google.golang.org/grpc"
 
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/config"
@@ -70,7 +69,7 @@ func main() {
 
 	// Temp files for exports live next to the database — the container has no /tmp.
 	srv := grpc.NewServer()
-	pb.RegisterLogServiceServer(srv, server.New(st, writer, filepath.Dir(cfg.DB.Path)))
+	server.Register(srv, server.New(st, writer, filepath.Dir(cfg.DB.Path)))
 	go func() {
 		if err := srv.Serve(lis); err != nil {
 			slog.Error("gRPC server stopped", "err", err)

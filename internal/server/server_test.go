@@ -13,7 +13,8 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/NurPech/hannah-proto-go/v4"
+	legacypb "github.com/NurPech/hannah-proto-go/v4"
+	pb "github.com/NurPech/hannah-proto-go/v4/hannahv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -28,6 +29,13 @@ import (
 // startServer runs a LogService on an in-memory connection and returns a client for it.
 func startServer(t *testing.T) pb.LogServiceClient {
 	t.Helper()
+	return pb.NewLogServiceClient(startServerConn(t))
+}
+
+// startServerConn is startServer returning the raw connection, for clients of either
+// API generation.
+func startServerConn(t *testing.T) *grpc.ClientConn {
+	t.Helper()
 	dir := t.TempDir()
 	st, err := store.New(filepath.Join(dir, "logs.db"))
 	require.NoError(t, err)
@@ -39,7 +47,7 @@ func startServer(t *testing.T) pb.LogServiceClient {
 
 	lis := bufconn.Listen(1 << 20)
 	srv := grpc.NewServer()
-	pb.RegisterLogServiceServer(srv, New(st, w, dir))
+	Register(srv, New(st, w, dir))
 	go srv.Serve(lis)
 
 	conn, err := grpc.NewClient("passthrough:///bufnet",
@@ -55,7 +63,7 @@ func startServer(t *testing.T) pb.LogServiceClient {
 		<-writerDone
 		st.Close()
 	})
-	return pb.NewLogServiceClient(conn)
+	return conn
 }
 
 func ship(t *testing.T, client pb.LogServiceClient, msgs ...*pb.ShipMessage) (*pb.ShipAck, error) {
@@ -131,6 +139,42 @@ func TestShipStoresEntriesAndReportsSource(t *testing.T) {
 	assert.Equal(t, int64(1000), src.GetOldestMs())
 	assert.Equal(t, int64(2000), src.GetNewestMs())
 	assert.Equal(t, int64(2), src.GetEntries())
+}
+
+// A component on an older logging library ships to the unversioned hannah.LogService (N−1).
+func TestShipOnLegacyPathIsServed(t *testing.T) {
+	conn := startServerConn(t)
+	legacy := legacypb.NewLogServiceClient(conn)
+
+	stream, err := legacy.Ship(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, stream.Send(&legacypb.ShipMessage{Payload: &legacypb.ShipMessage_Hello{Hello: &legacypb.ShipHello{
+		Component: "telegram", Instance: "pi", Version: "0.9.0",
+	}}}))
+	require.NoError(t, stream.Send(&legacypb.ShipMessage{Payload: &legacypb.ShipMessage_Entry{Entry: &legacypb.LogEntry{
+		TimestampMs: 1000, Level: legacypb.LogLevel_LOG_LEVEL_INFO, Logger: "test", Message: "old lib",
+	}}}))
+	ack, err := stream.CloseAndRecv()
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), ack.GetAccepted())
+
+	// Stored like any other entry, visible on both paths.
+	for _, sources := range []func() (int, string){
+		func() (int, string) {
+			resp, err := pb.NewLogServiceClient(conn).GetSources(context.Background(), &pb.Empty{})
+			require.NoError(t, err)
+			return len(resp.GetSources()), resp.GetSources()[0].GetComponent()
+		},
+		func() (int, string) {
+			resp, err := legacy.GetSources(context.Background(), &legacypb.Empty{})
+			require.NoError(t, err)
+			return len(resp.GetSources()), resp.GetSources()[0].GetComponent()
+		},
+	} {
+		n, component := sources()
+		assert.Equal(t, 1, n)
+		assert.Equal(t, "telegram", component)
+	}
 }
 
 func TestShipWithoutHelloIsRejected(t *testing.T) {

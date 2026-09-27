@@ -5,6 +5,11 @@
 -->
 ## **WORK IN PROGRESS**
 
+## 0.3.0
+* Changed: the collector registers with Hannah Core over its versioned API `hannah.v1`. Against a Hannah Core too old for it, it falls back to the previous API on its own and logs once per connection that Hannah Core should be updated
+* Changed: the collector serves its log API under `hannah.v1` as well as under the previous, unversioned name, so components keep shipping logs whether their logging library already uses `hannah.v1` or not
+* Changed: the "Hannah connection lost, reconnecting" warning now includes the Hannah address it tried, so a mistyped `hannah.address` is visible without digging out the startup line
+
 ## 0.2.4
 * Fixed: log exports failed with `disk I/O error (6410)` once the database had grown large enough. SQLite couldn't find a writable directory for its temp files under the systemd unit's filesystem protection (and the container image has none at all). Its temp files now live next to the database, like the export's own temp files
 
