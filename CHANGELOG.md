@@ -5,6 +5,9 @@
 -->
 ## **WORK IN PROGRESS**
 
+## 0.3.1
+* Chore: updated `hannah-proto-go` to v4.6.3 and `hannah-grpc-lib` to v0.4.0, no functional change
+
 ## 0.3.0
 * Changed: the collector registers with Hannah Core over its versioned API `hannah.v1`. Against a Hannah Core too old for it, it falls back to the previous API on its own and logs once per connection that Hannah Core should be updated
 * Changed: the collector serves its log API under `hannah.v1` as well as under the previous, unversioned name, so components keep shipping logs whether their logging library already uses `hannah.v1` or not
