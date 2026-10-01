@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/NurPech/hannah-proto-go/v4/hannahv1"
+	pb "github.com/NurPech/hannah-proto-go/v5/hannahv2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 

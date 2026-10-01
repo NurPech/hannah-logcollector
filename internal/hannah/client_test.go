@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	legacypb "github.com/NurPech/hannah-proto-go/v4"
-	pb "github.com/NurPech/hannah-proto-go/v4/hannahv1"
+	hannahproto "github.com/NurPech/hannah-proto-go/v5"
+	v1pb "github.com/NurPech/hannah-proto-go/v5/hannahv1"
+	pb "github.com/NurPech/hannah-proto-go/v5/hannahv2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gitlab.com/gessinger/hannah-grpc-lib/go/client"
@@ -43,7 +44,7 @@ func (r *recorder) count() int {
 	return len(r.registrations)
 }
 
-// fakeHannah is a Core that serves hannah.v1.
+// fakeHannah is a Core that serves hannah.v2.
 type fakeHannah struct {
 	pb.UnimplementedHannahServiceServer
 	rec *recorder
@@ -71,23 +72,23 @@ func (f *fakeHannah) LogCollectorConnect(stream grpc.BidiStreamingServer[pb.LogC
 	return nil
 }
 
-// legacyHannah is a Core too old for hannah.v1: it only serves the unversioned API.
-type legacyHannah struct {
-	legacypb.UnimplementedHannahServiceServer
+// v1Hannah is a Core too old for hannah.v2: it only serves hannah.v1.
+type v1Hannah struct {
+	v1pb.UnimplementedHannahServiceServer
 	rec *recorder
 }
 
-func (f *legacyHannah) LogCollectorConnect(stream grpc.BidiStreamingServer[legacypb.LogCollectorMessage, legacypb.LogCollectorCommand]) error {
+func (f *v1Hannah) LogCollectorConnect(stream grpc.BidiStreamingServer[v1pb.LogCollectorMessage, v1pb.LogCollectorCommand]) error {
 	msg, err := stream.Recv()
 	if err != nil {
 		return err
 	}
 	r := msg.GetRegister()
-	f.rec.record(stream.Context(), client.LegacyService, &pb.LogCollectorRegister{
+	f.rec.record(stream.Context(), client.HannahService.Previous, &pb.LogCollectorRegister{
 		Instance: r.GetInstance(), Host: r.GetHost(), Port: r.GetPort(), Version: r.GetVersion(),
 	})
-	if err := stream.Send(&legacypb.LogCollectorCommand{
-		Command: &legacypb.LogCollectorCommand_Registered{Registered: &legacypb.LogCollectorRegistered{}},
+	if err := stream.Send(&v1pb.LogCollectorCommand{
+		Command: &v1pb.LogCollectorCommand_Registered{Registered: &v1pb.LogCollectorRegistered{}},
 	}); err != nil {
 		return err
 	}
@@ -111,8 +112,8 @@ func TestRegistersWithHannah(t *testing.T) {
 		register func(*grpc.Server, *recorder)
 		service  string
 	}{
-		{"hannah.v1", func(s *grpc.Server, r *recorder) { pb.RegisterHannahServiceServer(s, &fakeHannah{rec: r}) }, client.CurrentService},
-		{"Core without hannah.v1", func(s *grpc.Server, r *recorder) { legacypb.RegisterHannahServiceServer(s, &legacyHannah{rec: r}) }, client.LegacyService},
+		{"hannah.v2", func(s *grpc.Server, r *recorder) { pb.RegisterHannahServiceServer(s, &fakeHannah{rec: r}) }, client.CurrentService},
+		{"Core without hannah.v2", func(s *grpc.Server, r *recorder) { v1pb.RegisterHannahServiceServer(s, &v1Hannah{rec: r}) }, client.HannahService.Previous},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := &recorder{}
@@ -130,7 +131,7 @@ func TestRegistersWithHannah(t *testing.T) {
 			assert.Equal(t, "main", reg.GetInstance())
 			assert.Equal(t, "10.0.0.5", reg.GetHost())
 			assert.Equal(t, int32(50060), reg.GetPort())
-			assert.Equal(t, []string{strconv.Itoa(legacypb.ProtoVersion)}, rec.versions)
+			assert.Equal(t, []string{strconv.Itoa(hannahproto.ProtoVersion)}, rec.versions)
 			assert.Equal(t, []string{tc.service}, rec.services)
 		})
 	}

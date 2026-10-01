@@ -26,15 +26,15 @@ Cutting a release works exactly like in hannah-timer (`scripts/release.js`, dry-
 
 ### Proto dependency
 
-The wire schema is the published Go module `github.com/NurPech/hannah-proto-go/v4` (imported as `pb`), generated upstream from `hannah-proto` (`hannah/logging.proto`, `hannah/infrastructure.proto`). Never generate or hand-edit proto code here, only bump the module version.
+The wire schema is the published Go module `github.com/NurPech/hannah-proto-go/v5` (`hannahv2` imported as `pb`, `hannahv1` as `v1pb`; `ProtoVersion` lives in the root package `hannahproto`), generated upstream from `hannah-proto` (`hannah/logging.proto`, `hannah/infrastructure.proto`). Never generate or hand-edit proto code here, only bump the module version.
 
 ### Package layout (`internal/`)
 
 - **`config`** — YAML config with env var overrides (`HANNAH_LOGCOLLECTOR_<SECTION>_<KEY>`), defaults in `defaults()`.
 - **`store`** — SQLite persistence (`modernc.org/sqlite`, pure Go / no CGO, single connection). Tables `sources` (component/instance/version), `entries`, `gaps`. `auto_vacuum = INCREMENTAL` is set before the first table is created so `Prune` can hand freed pages back to the filesystem. `Prune` deletes by age first, then the oldest entries until the *used* size (page count minus free pages) fits the limit. `Writer` batches entries from all `Ship` streams into one transaction per batch; `Sync` waits until everything queued so far is written (used at the end of a `Ship` stream and before an export).
 - **`export`** — builds the `tar.gz`: one `<component>-<instance>.log` per source plus `manifest.json`. Per-source files are staged in temp files because tar needs each file's size before its content.
-- **`server`** — the `LogService` implementation. `Export` builds the archive into a temp file first (so a slow client never holds the database), then streams it in 256 KB chunks.
-- **`hannah`** — keeps the `LogCollectorConnect` stream open and reconnects with backoff (1s → 30s, reset once a registration was acknowledged). Sends `x-proto-version` like all Hannah clients.
+- **`server`** — the `LogService` implementation, served as `hannah.v2.LogService` and `hannah.v1.LogService` (N−1). The generations are not assumed wire-identical: `v1.go` is its own v1 handler that converts every message to v2 and delegates. `Export` builds the archive into a temp file first (so a slow client never holds the database), then streams it in 256 KB chunks.
+- **`hannah`** — keeps the `LogCollectorConnect` stream open and reconnects with backoff (1s → 30s, reset once a registration was acknowledged). Speaks `hannah.v2`, with fallback to `hannah.v1` when Core is too old (`client.Versioned.Resolve` from hannah-grpc-lib decides once per connection, the collector builds the generated client of that generation). Sends `x-proto-version` like all Hannah clients.
 
 ### Invariants
 

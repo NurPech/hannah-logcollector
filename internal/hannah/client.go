@@ -7,7 +7,8 @@ import (
 	"log/slog"
 	"time"
 
-	pb "github.com/NurPech/hannah-proto-go/v4/hannahv1"
+	v1pb "github.com/NurPech/hannah-proto-go/v5/hannahv1"
+	pb "github.com/NurPech/hannah-proto-go/v5/hannahv2"
 	"gitlab.com/gessinger/hannah-grpc-lib/go/client"
 	"google.golang.org/grpc"
 )
@@ -70,36 +71,87 @@ func (c *Client) connect(ctx context.Context) (bool, error) {
 	}
 	defer conn.Close()
 
-	// hannah.v1, falling back to the unversioned API when Core is too old for it. A new
-	// connection per attempt means the probe runs again after every reconnect.
-	stream, err := pb.NewHannahServiceClient(client.New(conn, nil)).LogCollectorConnect(ctx)
-	if err != nil {
-		return false, err
+	// hannah.v2, falling back to hannah.v1 (N−1) when Core predates it, each with its own
+	// messages. A new connection per attempt means the probe runs again after every reconnect.
+	var stream connectStream
+	if client.New(conn, nil).Resolve(ctx) == client.V1 {
+		st, err := v1pb.NewHannahServiceClient(conn).LogCollectorConnect(ctx)
+		if err != nil {
+			return false, err
+		}
+		stream = v1Stream{st}
+	} else {
+		st, err := pb.NewHannahServiceClient(conn).LogCollectorConnect(ctx)
+		if err != nil {
+			return false, err
+		}
+		stream = v2Stream{st}
 	}
 
-	if err := stream.Send(&pb.LogCollectorMessage{
-		Payload: &pb.LogCollectorMessage_Register{Register: &pb.LogCollectorRegister{
-			Instance: c.reg.Instance,
-			Host:     c.reg.Host,
-			Port:     c.reg.Port,
-			Version:  c.reg.Version,
-		}},
-	}); err != nil {
+	if err := stream.register(c.reg); err != nil {
 		return false, err
 	}
 
 	registered := false
 	for {
-		cmd, err := stream.Recv()
+		ack, err := stream.recv()
 		if err != nil {
 			return registered, err
 		}
-		switch cmd.GetCommand().(type) {
-		case *pb.LogCollectorCommand_Registered:
-			registered = true
-			slog.Info("registered with Hannah", "addr", c.hannahAddr, "instance", c.reg.Instance)
-		default:
+		if !ack {
 			slog.Warn("received unknown LogCollectorCommand variant")
+			continue
 		}
+		registered = true
+		slog.Info("registered with Hannah", "addr", c.hannahAddr, "instance", c.reg.Instance)
 	}
+}
+
+// connectStream is a LogCollectorConnect stream of either generation.
+type connectStream interface {
+	register(Registration) error
+	// recv reports whether the received command was the acknowledgement of the registration.
+	recv() (bool, error)
+}
+
+type v2Stream struct {
+	grpc.BidiStreamingClient[pb.LogCollectorMessage, pb.LogCollectorCommand]
+}
+
+func (s v2Stream) register(r Registration) error {
+	return s.Send(&pb.LogCollectorMessage{
+		Payload: &pb.LogCollectorMessage_Register{Register: &pb.LogCollectorRegister{
+			Instance: r.Instance, Host: r.Host, Port: r.Port, Version: r.Version,
+		}},
+	})
+}
+
+func (s v2Stream) recv() (bool, error) {
+	cmd, err := s.Recv()
+	if err != nil {
+		return false, err
+	}
+	_, ok := cmd.GetCommand().(*pb.LogCollectorCommand_Registered)
+	return ok, nil
+}
+
+type v1Stream struct {
+	grpc.BidiStreamingClient[v1pb.LogCollectorMessage, v1pb.LogCollectorCommand]
+}
+
+func (s v1Stream) register(r Registration) error {
+	return s.Send(&v1pb.LogCollectorMessage{
+		Payload: &v1pb.LogCollectorMessage_Register{Register: &v1pb.LogCollectorRegister{
+			Instance: r.Instance, Host: r.Host, Port: r.Port, Version: r.Version,
+		}},
+	})
+}
+
+func (s v1Stream) recv() (bool, error) {
+	cmd, err := s.Recv()
+	if err != nil {
+		return false, err
+	}
+	_, ok := cmd.GetCommand().(*v1pb.LogCollectorCommand_Registered)
+	return ok, nil
 }

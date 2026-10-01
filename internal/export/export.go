@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/NurPech/hannah-proto-go/v4/hannahv1"
+	pb "github.com/NurPech/hannah-proto-go/v5/hannahv2"
 
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/store"
 )

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	legacypb "github.com/NurPech/hannah-proto-go/v4"
-	pb "github.com/NurPech/hannah-proto-go/v4/hannahv1"
+	v1pb "github.com/NurPech/hannah-proto-go/v5/hannahv1"
+	pb "github.com/NurPech/hannah-proto-go/v5/hannahv2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -141,18 +141,18 @@ func TestShipStoresEntriesAndReportsSource(t *testing.T) {
 	assert.Equal(t, int64(2), src.GetEntries())
 }
 
-// A component on an older logging library ships to the unversioned hannah.LogService (N−1).
-func TestShipOnLegacyPathIsServed(t *testing.T) {
+// A component on an older logging library ships to hannah.v1.LogService (N−1).
+func TestShipOnV1PathIsServed(t *testing.T) {
 	conn := startServerConn(t)
-	legacy := legacypb.NewLogServiceClient(conn)
+	v1 := v1pb.NewLogServiceClient(conn)
 
-	stream, err := legacy.Ship(context.Background())
+	stream, err := v1.Ship(context.Background())
 	require.NoError(t, err)
-	require.NoError(t, stream.Send(&legacypb.ShipMessage{Payload: &legacypb.ShipMessage_Hello{Hello: &legacypb.ShipHello{
+	require.NoError(t, stream.Send(&v1pb.ShipMessage{Payload: &v1pb.ShipMessage_Hello{Hello: &v1pb.ShipHello{
 		Component: "telegram", Instance: "pi", Version: "0.9.0",
 	}}}))
-	require.NoError(t, stream.Send(&legacypb.ShipMessage{Payload: &legacypb.ShipMessage_Entry{Entry: &legacypb.LogEntry{
-		TimestampMs: 1000, Level: legacypb.LogLevel_LOG_LEVEL_INFO, Logger: "test", Message: "old lib",
+	require.NoError(t, stream.Send(&v1pb.ShipMessage{Payload: &v1pb.ShipMessage_Entry{Entry: &v1pb.LogEntry{
+		TimestampMs: 1000, Level: v1pb.LogLevel_LOG_LEVEL_INFO, Logger: "test", Message: "old lib",
 	}}}))
 	ack, err := stream.CloseAndRecv()
 	require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestShipOnLegacyPathIsServed(t *testing.T) {
 			return len(resp.GetSources()), resp.GetSources()[0].GetComponent()
 		},
 		func() (int, string) {
-			resp, err := legacy.GetSources(context.Background(), &legacypb.Empty{})
+			resp, err := v1.GetSources(context.Background(), &v1pb.Empty{})
 			require.NoError(t, err)
 			return len(resp.GetSources()), resp.GetSources()[0].GetComponent()
 		},
@@ -175,6 +175,52 @@ func TestShipOnLegacyPathIsServed(t *testing.T) {
 		assert.Equal(t, 1, n)
 		assert.Equal(t, "telegram", component)
 	}
+}
+
+// Level, category and the export filter survive the conversion on the hannah.v1 path.
+func TestExportOnV1PathExcludesTranscripts(t *testing.T) {
+	v1 := v1pb.NewLogServiceClient(startServerConn(t))
+
+	stream, err := v1.Ship(context.Background())
+	require.NoError(t, err)
+	require.NoError(t, stream.Send(&v1pb.ShipMessage{Payload: &v1pb.ShipMessage_Hello{Hello: &v1pb.ShipHello{Component: "core", Instance: "pi"}}}))
+	for _, e := range []*v1pb.LogEntry{
+		{TimestampMs: 1000, Level: v1pb.LogLevel_LOG_LEVEL_INFO, Message: "intent TurnOn", Category: v1pb.LogCategory_LOG_CATEGORY_GENERAL},
+		{TimestampMs: 2000, Level: v1pb.LogLevel_LOG_LEVEL_INFO, Message: "mach das Licht an", Category: v1pb.LogCategory_LOG_CATEGORY_TRANSCRIPT},
+	} {
+		require.NoError(t, stream.Send(&v1pb.ShipMessage{Payload: &v1pb.ShipMessage_Entry{Entry: e}}))
+	}
+	_, err = stream.CloseAndRecv()
+	require.NoError(t, err)
+
+	exp, err := v1.Export(context.Background(), &v1pb.ExportRequest{
+		ExcludeCategories: []v1pb.LogCategory{v1pb.LogCategory_LOG_CATEGORY_TRANSCRIPT},
+	})
+	require.NoError(t, err)
+	var data bytes.Buffer
+	for {
+		chunk, err := exp.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		require.NoError(t, err)
+		data.Write(chunk.GetData())
+	}
+	gz, err := gzip.NewReader(&data)
+	require.NoError(t, err)
+	tr := tar.NewReader(gz)
+	files := map[string]string{}
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		require.NoError(t, err)
+		content, _ := io.ReadAll(tr)
+		files[hdr.Name] = string(content)
+	}
+	assert.Contains(t, files["core-pi.log"], "intent TurnOn")
+	assert.NotContains(t, files["core-pi.log"], "mach das Licht an")
 }
 
 func TestShipWithoutHelloIsRejected(t *testing.T) {
