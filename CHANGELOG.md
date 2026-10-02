@@ -5,6 +5,9 @@
 -->
 ## **WORK IN PROGRESS**
 
+## 0.4.1
+* Fixed: the release archive now ships a `hannah.info`, so AutoDeploy keeps `config.example.yaml` and `hannah-logcollector.service` out of a shared install directory such as `/usr/local/bin`. Copies left there by earlier updates are not removed automatically and can be deleted by hand
+
 ## 0.4.0
 * Changed: the collector registers with Hannah Core over `hannah.v2`. Against a Hannah Core too old for it, it falls back to `hannah.v1` on its own and logs once per connection that Hannah Core should be updated
 * Changed: the collector serves its log API under `hannah.v2` and `hannah.v1`, so components keep shipping logs whether their logging library already uses `hannah.v2` or still `hannah.v1`
