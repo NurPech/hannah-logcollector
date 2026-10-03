@@ -5,6 +5,9 @@
 -->
 ## **WORK IN PROGRESS**
 
+## 0.4.2
+* Changed: the Collector names itself and its version in every call to Hannah Core and tells Core every 30 seconds that it is running, so Core still knows it when it holds no open connection. Two Proxies show up as two instances. Needs a Core that knows the call, an older Core is left alone after one log line. Requires `hannah-grpc-lib` 0.8 (Go)
+
 ## 0.4.1
 * Fixed: the release archive now ships a `hannah.info`, so AutoDeploy keeps `config.example.yaml` and `hannah-logcollector.service` out of a shared install directory such as `/usr/local/bin`. Copies left there by earlier updates are not removed automatically and can be deleted by hand
 
