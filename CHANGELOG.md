@@ -5,6 +5,10 @@
 -->
 ## **WORK IN PROGRESS**
 
+## 0.5.0
+* Added: the Collector ships its own logs like every other component, into its own store. They show up as the source `logcollector` in a log export. While Hannah Core is down they still arrive, because the Collector sends them to itself directly
+* Fixed: the Collector now really names itself and its version in every call to Hannah Core and tells Core every 30 seconds that it is running. 0.4.2 announced that, but did not do it, so Core did not know the Collector as a running component
+
 ## 0.4.2
 * Changed: the Collector names itself and its version in every call to Hannah Core and tells Core every 30 seconds that it is running, so Core still knows it when it holds no open connection. Two Proxies show up as two instances. Needs a Core that knows the call, an older Core is left alone after one log line. Requires `hannah-grpc-lib` 0.8 (Go)
 

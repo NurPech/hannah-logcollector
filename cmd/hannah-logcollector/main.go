@@ -8,9 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
+	hannahlog "gitlab.com/gessinger/hannah-grpc-lib/go/logging"
 	"google.golang.org/grpc"
 
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/config"
@@ -37,7 +40,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLogging(cfg.Log.Level)
+	shipping := setupLogging(cfg.Log.Level)
 	slog.Info("starting hannah-logcollector", "version", version, "hannah_addr", cfg.Hannah.Address,
 		"listen", cfg.Server.Listen, "db", cfg.DB.Path,
 		"retention_days", cfg.Retention.Days, "max_size_mb", cfg.Retention.MaxSizeMB)
@@ -77,6 +80,12 @@ func main() {
 		}
 	}()
 
+	// The collector ships its own logs like every other component, into itself: the Hannah
+	// address enables the heartbeat and discovery, its own address is the fallback, so the logs
+	// also arrive while Hannah Core is down. Only now the server listens, until then the buffer
+	// of the library holds what was logged.
+	shipping.Connect(cfg.Hannah.Address, selfAddress(lis.Addr()))
+
 	client := hannah.New(cfg.Hannah.Address, hannah.Registration{
 		Instance: cfg.Server.Instance,
 		Host:     cfg.Server.AdvertiseHost,
@@ -87,6 +96,8 @@ func main() {
 
 	<-ctx.Done()
 	slog.Info("shutting down")
+	// First, while the server still takes Ship streams: what is buffered goes into the store.
+	shipping.Close(shutdownTimeout)
 	stopServer(srv)
 	stopWriter()
 	<-writerDone
@@ -135,7 +146,24 @@ func runRetention(ctx context.Context, st *store.Store, cfg *config.Config) {
 	}
 }
 
-func setupLogging(level string) {
+// selfAddress is where the collector's own gRPC server can be reached from this host: the
+// listener's address, with loopback for an unspecified one (":50060").
+func selfAddress(addr net.Addr) string {
+	tcp, ok := addr.(*net.TCPAddr)
+	if !ok {
+		return addr.String()
+	}
+	host := tcp.IP
+	if len(host) == 0 || host.IsUnspecified() {
+		host = net.IPv4(127, 0, 0, 1)
+	}
+	return net.JoinHostPort(host.String(), strconv.Itoa(tcp.Port))
+}
+
+// setupLogging writes JSON to stdout, as before, and also buffers every record for
+// shipping (hannah-grpc-lib). The shipping names the component and its version in every
+// call to Hannah Core. Connect starts it once the addresses are known.
+func setupLogging(level string) *hannahlog.Shipping {
 	var l slog.Level
 	switch level {
 	case "debug":
@@ -147,5 +175,14 @@ func setupLogging(level string) {
 	default:
 		l = slog.LevelInfo
 	}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: l})))
+	shipping, err := hannahlog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: l}), hannahlog.Options{
+		Component: "logcollector",
+		Version:   strings.TrimPrefix(version, "v"),
+	})
+	if err != nil {
+		slog.Error("setting up log shipping", "err", err)
+		os.Exit(1)
+	}
+	slog.SetDefault(slog.New(shipping.Handler()))
+	return shipping
 }

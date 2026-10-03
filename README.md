@@ -10,7 +10,7 @@ Deliberately small: ingest, bounded storage, export. No search, no query UI, no 
 
 1. On startup the collector registers with Hannah Core (`LogCollectorConnect`).
 2. Hannah announces its address to all connected components (`SubscribeInfrastructure`), so they need no configuration of their own.
-3. Components stream their log lines to the collector (`LogService.Ship`). Lines logged before the collector was reachable are buffered by the component and sent with their original timestamps.
+3. Components stream their log lines to the collector (`LogService.Ship`). Lines logged before the collector was reachable are buffered by the component and sent with their original timestamps. The collector ships its own logs the same way, to itself, so they appear in an export as the component `logcollector`.
 4. An export (`LogService.Export`) is a `tar.gz` with one plain-text file per component and a `manifest.json` (versions, time range, gaps where a component had to drop lines, excluded categories).
 
 Speech transcripts and metadata (room/device names, presence) are tagged per line and can be left out of an export — useful before posting logs publicly. Secrets are filtered out by the components before they ever reach the collector.
