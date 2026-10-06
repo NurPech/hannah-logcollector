@@ -13,6 +13,7 @@ type Writer struct {
 	batchSize  int
 	flushEvery time.Duration
 	requests   chan writeRequest
+	tap        func(Entry)
 }
 
 type writeRequest struct {
@@ -87,10 +88,19 @@ func (w *Writer) drain(batch *[]Entry) {
 	}
 }
 
+// SetTap makes the writer hand every entry it accepts to fn as well, right after it is queued —
+// the single point all entries pass, whichever way they came in (Ship streams, syslog).
+// fn is called from the goroutine of Add, possibly several at once, and must not block.
+// Call it before the first Add.
+func (w *Writer) SetTap(fn func(Entry)) { w.tap = fn }
+
 // Add queues an entry. Blocks while the queue is full (backpressure onto the stream).
 func (w *Writer) Add(ctx context.Context, e Entry) error {
 	select {
 	case w.requests <- writeRequest{entry: &e}:
+		if w.tap != nil {
+			w.tap(e)
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

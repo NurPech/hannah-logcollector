@@ -5,6 +5,10 @@
 -->
 ## **WORK IN PROGRESS**
 
+## 0.6.0
+* Added: the Collector can receive syslog (RFC 5424 over UDP) from the satellites. Set `syslog.listen` (for example `:5514`, env `HANNAH_LOGCOLLECTOR_SYSLOG_LISTEN`), it is off by default. Every satellite appears as the component `hannah-esp` with its device ID as the instance, a line without a timestamp gets the time it arrived, and a datagram that is no RFC 5424 message is dropped without stopping the receiver. The port is announced to Hannah along with the gRPC one, so Hannah can tell the satellites where to send their logs; a Hannah Core on `hannah.v1` doesn't get it. Requires `hannah-proto-go` 5.4.0. `hannah-logcollector#12`
+* Added: the Collector can pass every entry on to a syslog receiver, for example Alloy's `loki.source.syslog`, so the logs of all components arrive in Loki through the Collector alone. Set `forward.address` (`host:port`, env `HANNAH_LOGCOLLECTOR_FORWARD_ADDRESS`), `forward.protocol` is `tcp` (default) or `udp`; it is off by default. Entries from the components and from the satellites' syslog both go out as RFC 5424 with their own timestamp, the instance as hostname and the component as app name, the severity of the level, and category and logger as structured data. Over TCP the messages are octet-counted, so a message with line breaks stays one. If the receiver is not reachable the entries wait in a queue of 10,000 and the oldest are dropped when it is full — the receiver never slows the Collector down, and the log and the export are not affected. A message longer than about 7,000 bytes is cut. `hannah-logcollector#13`
+
 ## 0.5.0
 * Added: the Collector ships its own logs like every other component, into its own store. They show up as the source `logcollector` in a log export. While Hannah Core is down they still arrive, because the Collector sends them to itself directly
 * Fixed: the Collector now really names itself and its version in every call to Hannah Core and tells Core every 30 seconds that it is running. 0.4.2 announced that, but did not do it, so Core did not know the Collector as a running component

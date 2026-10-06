@@ -111,9 +111,11 @@ func TestRegistersWithHannah(t *testing.T) {
 		name     string
 		register func(*grpc.Server, *recorder)
 		service  string
+		// hannah.v1 has no field for the syslog port, so a Core on it never hears of one.
+		syslogPort int32
 	}{
-		{"hannah.v2", func(s *grpc.Server, r *recorder) { pb.RegisterHannahServiceServer(s, &fakeHannah{rec: r}) }, client.CurrentService},
-		{"Core without hannah.v2", func(s *grpc.Server, r *recorder) { v1pb.RegisterHannahServiceServer(s, &v1Hannah{rec: r}) }, client.HannahService.Previous},
+		{"hannah.v2", func(s *grpc.Server, r *recorder) { pb.RegisterHannahServiceServer(s, &fakeHannah{rec: r}) }, client.CurrentService, 5514},
+		{"Core without hannah.v2", func(s *grpc.Server, r *recorder) { v1pb.RegisterHannahServiceServer(s, &v1Hannah{rec: r}) }, client.HannahService.Previous, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := &recorder{}
@@ -121,7 +123,7 @@ func TestRegistersWithHannah(t *testing.T) {
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			c := New("passthrough:///bufnet", Registration{Instance: "main", Host: "10.0.0.5", Port: 50060, Version: "0.1.0"}, dialer)
+			c := New("passthrough:///bufnet", Registration{Instance: "main", Host: "10.0.0.5", Port: 50060, Version: "0.1.0", SyslogPort: 5514}, dialer)
 			go c.Run(ctx)
 
 			require.Eventually(t, func() bool { return rec.count() == 1 }, 2*time.Second, 10*time.Millisecond)
@@ -131,6 +133,7 @@ func TestRegistersWithHannah(t *testing.T) {
 			assert.Equal(t, "main", reg.GetInstance())
 			assert.Equal(t, "10.0.0.5", reg.GetHost())
 			assert.Equal(t, int32(50060), reg.GetPort())
+			assert.Equal(t, tc.syslogPort, reg.GetSyslogPort())
 			assert.Equal(t, []string{strconv.Itoa(hannahproto.ProtoVersion)}, rec.versions)
 			assert.Equal(t, []string{tc.service}, rec.services)
 		})

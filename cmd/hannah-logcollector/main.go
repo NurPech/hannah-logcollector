@@ -17,9 +17,11 @@ import (
 	"google.golang.org/grpc"
 
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/config"
+	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/forward"
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/hannah"
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/server"
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/store"
+	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/syslog"
 )
 
 // version is set at build time via -ldflags.
@@ -68,7 +70,39 @@ func main() {
 	writerDone := make(chan struct{})
 	go func() { writer.Run(writerCtx); close(writerDone) }()
 
+	// Every entry the writer accepts, from Ship streams and from syslog alike, is also passed on
+	// to the syslog receiver, if one is configured. Like the writer it outlives the gRPC
+	// server, so the last lines of the components reach the receiver as well.
+	forwardCtx, stopForward := context.WithCancel(context.Background())
+	forwardDone := make(chan struct{})
+	if cfg.Forward.Address == "" {
+		close(forwardDone)
+	} else {
+		fwd := forward.New(forward.Config{Network: cfg.Forward.Protocol, Address: cfg.Forward.Address}, st)
+		writer.SetTap(fwd.Offer)
+		slog.Info("forwarding entries as syslog", "target", cfg.Forward.Address, "protocol", cfg.Forward.Protocol)
+		go func() { fwd.Run(forwardCtx); close(forwardDone) }()
+	}
+
 	go runRetention(ctx, st, cfg)
+
+	// The syslog receiver (ESP satellites) feeds the same writer as the Ship streams.
+	var syslogPort int32
+	syslogDone := make(chan struct{})
+	if cfg.Syslog.Listen == "" {
+		close(syslogDone)
+	} else {
+		recv, err := syslog.Listen(cfg.Syslog.Listen, st, writer)
+		if err != nil {
+			slog.Error("listening for syslog", "addr", cfg.Syslog.Listen, "err", err)
+			os.Exit(1)
+		}
+		if udp, ok := recv.Addr().(*net.UDPAddr); ok {
+			syslogPort = int32(udp.Port)
+		}
+		slog.Info("syslog receiver listening", "addr", recv.Addr().String())
+		go func() { recv.Run(ctx); close(syslogDone) }()
+	}
 
 	// Temp files for exports live next to the database — the container has no /tmp.
 	srv := grpc.NewServer()
@@ -91,6 +125,8 @@ func main() {
 		Host:     cfg.Server.AdvertiseHost,
 		Port:     int32(cfg.EffectiveAdvertisePort()),
 		Version:  version,
+
+		SyslogPort: syslogPort,
 	})
 	go client.Run(ctx)
 
@@ -99,8 +135,11 @@ func main() {
 	// First, while the server still takes Ship streams: what is buffered goes into the store.
 	shipping.Close(shutdownTimeout)
 	stopServer(srv)
+	<-syslogDone
 	stopWriter()
 	<-writerDone
+	stopForward() // the writer is done, nothing new comes in: send what is left and stop
+	<-forwardDone
 	slog.Info("shutdown complete")
 }
 

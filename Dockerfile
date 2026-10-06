@@ -14,5 +14,7 @@ USER 1000:1000
 ENV HANNAH_LOGCOLLECTOR_DB_PATH=/app/data/logs.db
 
 EXPOSE 50060
+# Only with HANNAH_LOGCOLLECTOR_SYSLOG_LISTEN (e.g. :5514): the syslog receiver of the satellites.
+EXPOSE 5514/udp
 
 ENTRYPOINT ["/app/logcollector"]

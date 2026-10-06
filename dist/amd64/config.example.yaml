@@ -20,6 +20,21 @@ server:
   # Override with env var HANNAH_LOGCOLLECTOR_SERVER_INSTANCE.
   instance: "default"
 
+syslog:
+  # UDP address of the syslog receiver (RFC 5424), used by the ESP satellites. Empty = no
+  # syslog receiver. The port is announced to Hannah, which hands it on to the satellites.
+  # Override with env var HANNAH_LOGCOLLECTOR_SYSLOG_LISTEN.
+  listen: ""
+
+forward:
+  # host:port of a syslog receiver (RFC 5424), for example Alloy's loki.source.syslog. Every
+  # entry the collector accepts is passed on there as well. Empty = no forwarding.
+  # Override with env var HANNAH_LOGCOLLECTOR_FORWARD_ADDRESS.
+  address: ""
+  # tcp (default, octet-counted frames) or udp.
+  # Override with env var HANNAH_LOGCOLLECTOR_FORWARD_PROTOCOL.
+  protocol: "tcp"
+
 db:
   # Path to the SQLite database file. Export temp files are written to the same directory.
   # Override with env var HANNAH_LOGCOLLECTOR_DB_PATH.

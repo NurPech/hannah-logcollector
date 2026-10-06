@@ -12,6 +12,8 @@ import (
 type Config struct {
 	Hannah    HannahConfig    `yaml:"hannah"`
 	Server    ServerConfig    `yaml:"server"`
+	Syslog    SyslogConfig    `yaml:"syslog"`
+	Forward   ForwardConfig   `yaml:"forward"`
 	DB        DBConfig        `yaml:"db"`
 	Retention RetentionConfig `yaml:"retention"`
 	Log       LogConfig       `yaml:"log"`
@@ -32,6 +34,22 @@ type ServerConfig struct {
 	AdvertisePort int `yaml:"advertise_port"`
 	// Distinguishes several collectors; a second one with the same name replaces the first.
 	Instance string `yaml:"instance"`
+}
+
+// SyslogConfig describes the optional receiver for RFC 5424 syslog over UDP, used by the
+// ESP satellites. Its port is announced to Hannah along with the gRPC one.
+type SyslogConfig struct {
+	// UDP address to listen on, e.g. ":5514". Empty = no syslog receiver.
+	Listen string `yaml:"listen"`
+}
+
+// ForwardConfig describes the optional forwarding of every accepted entry to a syslog
+// receiver (RFC 5424), for example Alloy's loki.source.syslog.
+type ForwardConfig struct {
+	// host:port of the receiver. Empty = no forwarding.
+	Address string `yaml:"address"`
+	// "tcp" (default) or "udp".
+	Protocol string `yaml:"protocol"`
 }
 
 type DBConfig struct {
@@ -92,6 +110,9 @@ func defaults() *Config {
 			Listen:   ":50060",
 			Instance: "default",
 		},
+		Forward: ForwardConfig{
+			Protocol: "tcp",
+		},
 		DB: DBConfig{
 			Path: "logs.db",
 		},
@@ -108,6 +129,19 @@ func defaults() *Config {
 func (c *Config) validate() error {
 	if _, _, err := net.SplitHostPort(c.Server.Listen); err != nil {
 		return fmt.Errorf("server.listen %q: %w", c.Server.Listen, err)
+	}
+	if c.Syslog.Listen != "" {
+		if _, _, err := net.SplitHostPort(c.Syslog.Listen); err != nil {
+			return fmt.Errorf("syslog.listen %q: %w", c.Syslog.Listen, err)
+		}
+	}
+	if c.Forward.Protocol != "tcp" && c.Forward.Protocol != "udp" {
+		return fmt.Errorf("forward.protocol must be tcp or udp, got %q", c.Forward.Protocol)
+	}
+	if c.Forward.Address != "" {
+		if _, _, err := net.SplitHostPort(c.Forward.Address); err != nil {
+			return fmt.Errorf("forward.address %q: %w", c.Forward.Address, err)
+		}
 	}
 	if c.Retention.Days <= 0 {
 		return fmt.Errorf("retention.days must be > 0, got %d", c.Retention.Days)
@@ -130,6 +164,15 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("HANNAH_LOGCOLLECTOR_SERVER_INSTANCE"); v != "" {
 		cfg.Server.Instance = v
+	}
+	if v := os.Getenv("HANNAH_LOGCOLLECTOR_SYSLOG_LISTEN"); v != "" {
+		cfg.Syslog.Listen = v
+	}
+	if v := os.Getenv("HANNAH_LOGCOLLECTOR_FORWARD_ADDRESS"); v != "" {
+		cfg.Forward.Address = v
+	}
+	if v := os.Getenv("HANNAH_LOGCOLLECTOR_FORWARD_PROTOCOL"); v != "" {
+		cfg.Forward.Protocol = v
 	}
 	if v := os.Getenv("HANNAH_LOGCOLLECTOR_DB_PATH"); v != "" {
 		cfg.DB.Path = v

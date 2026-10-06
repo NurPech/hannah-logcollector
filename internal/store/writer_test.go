@@ -62,3 +62,38 @@ func TestWriterFlushesOnShutdown(t *testing.T) {
 	<-done
 	assert.Equal(t, 1, countEntries(t, s))
 }
+
+func TestWriterTapSeesEveryAcceptedEntry(t *testing.T) {
+	s := newStore(t)
+	src, _ := s.UpsertSource(context.Background(), "core", "pi", "")
+
+	w := NewWriter(s, 1000, time.Hour)
+	var tapped []Entry
+	w.SetTap(func(e Entry) { tapped = append(tapped, e) })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx)
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, w.Add(ctx, Entry{SourceID: src, TimestampMs: int64(i), Message: "x"}))
+	}
+	require.NoError(t, w.Sync(ctx))
+
+	require.Len(t, tapped, 3)
+	assert.Equal(t, int64(2), tapped[2].TimestampMs)
+	assert.Equal(t, 3, countEntries(t, s), "the store still gets everything")
+}
+
+func TestWriterTapIsNotCalledForAnEntryThatWasNotAccepted(t *testing.T) {
+	s := newStore(t)
+	w := NewWriter(s, 1, time.Hour) // no Run: the queue (size 1) fills up
+	called := 0
+	w.SetTap(func(Entry) { called++ })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, w.Add(ctx, Entry{Message: "fits"}))
+	cancel()
+	assert.Error(t, w.Add(ctx, Entry{Message: "does not"}))
+
+	assert.Equal(t, 1, called)
+}

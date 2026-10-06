@@ -1,5 +1,7 @@
 github.com/NurPech/hannah-proto-go/v5 v5.3.0 h1:GUxPOv3c9jf3Wvz4Co3Zy/fkQrZz0ysE7dhMTLLb+yc=
 github.com/NurPech/hannah-proto-go/v5 v5.3.0/go.mod h1:vEstl0T0uf00iVu6Pi0s8gExwzpvAnOwCK+UvAsBAxQ=
+github.com/NurPech/hannah-proto-go/v5 v5.4.0 h1:FibAwWZ8EeVDdjbrfYwWoRRh/xxtk37hxkuPWjeRnSw=
+github.com/NurPech/hannah-proto-go/v5 v5.4.0/go.mod h1:vEstl0T0uf00iVu6Pi0s8gExwzpvAnOwCK+UvAsBAxQ=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/golang/protobuf v1.5.4 h1:i7eJL8qZTpSEXOPTxNKhASYpMn+8e5Q6AdndVa1dWek=

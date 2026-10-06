@@ -19,6 +19,9 @@ type Registration struct {
 	Host     string // empty = Hannah uses the address this connection comes from
 	Port     int32
 	Version  string
+	// SyslogPort is the UDP port of the syslog receiver on Host, 0 = none. Only hannah.v2 can
+	// carry it; against a Core on hannah.v1 it stays unannounced.
+	SyslogPort int32
 }
 
 // Client holds the LogCollectorConnect stream open. The collector counts as available
@@ -121,7 +124,7 @@ type v2Stream struct {
 func (s v2Stream) register(r Registration) error {
 	return s.Send(&pb.LogCollectorMessage{
 		Payload: &pb.LogCollectorMessage_Register{Register: &pb.LogCollectorRegister{
-			Instance: r.Instance, Host: r.Host, Port: r.Port, Version: r.Version,
+			Instance: r.Instance, Host: r.Host, Port: r.Port, Version: r.Version, SyslogPort: r.SyslogPort,
 		}},
 	})
 }
