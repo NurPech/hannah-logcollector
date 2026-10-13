@@ -65,6 +65,31 @@ loki.source.syslog "hannah" {
 }
 ```
 
+The structured data also carries `name`, what a person calls the entry's instance: a satellite's display name as Hannah Core knows it, otherwise the instance itself (the device ID), so it is never empty. The collector asks Hannah Core for the names when it starts and then every five minutes, so a renamed satellite shows up without a restart. While Core can't be reached the last known names stay, before the first answer a satellite is its own name. The hostname stays the device ID, that is what a receiver identifies by.
+
+To get the name as a label, let Alloy pass the structured data on and keep only the name (`category` and `logger` have many values, they do not belong into labels). Alloy builds the label from the ID of the element and the parameter, the exact name is worth a look in Alloy's UI:
+
+```alloy
+loki.relabel "hannah" {
+  forward_to = []
+  rule {
+    action = "labelmap"
+    regex  = "__syslog_(.+)"
+  }
+  rule {
+    action        = "replace"
+    source_labels = ["__syslog_message_sd_hannah_32473_name"]
+    target_label  = "name"
+  }
+  rule {
+    action = "labeldrop"
+    regex  = "message_sd_.+"
+  }
+}
+```
+
+and `label_structured_data = true` in the `listener` block. A rule that compares two time windows with `unless` has to match on the hostname only (`unless on(message_hostname)`), or the series of the two windows do not line up in the moment the label first appears.
+
 The receiver never slows the collector down: while it is not reachable, entries wait in a queue of 10,000 and the oldest are dropped when it is full (one summary line per minute says how many). The log and the export are not affected. A message longer than about 7,000 bytes is cut, below the 8192 bytes Alloy accepts by default.
 
 ## Running it

@@ -33,12 +33,13 @@ const (
 
 // Format renders an entry as one RFC 5424 message, without framing:
 //
-//	<PRI>1 TIMESTAMP HOSTNAME APP-NAME - - [hannah@32473 category="…" logger="…"] MSG
+//	<PRI>1 TIMESTAMP HOSTNAME APP-NAME - - [hannah@32473 category="…" logger="…" name="…"] MSG
 //
 // The timestamp is the entry's own, the hostname the source's instance and the app name its
-// component, so the receiver can label by them. The severity comes from the level, category
-// and logger go into the structured data. A message that is too long is cut.
-func Format(e store.Entry, src store.Source) []byte {
+// component, so the receiver can label by them. The severity comes from the level, category,
+// logger and name go into the structured data. The name is what a person calls the instance
+// (a satellite's display name), left out if empty. A message that is too long is cut.
+func Format(e store.Entry, src store.Source, name string) []byte {
 	var b strings.Builder
 	b.WriteByte('<')
 	b.WriteString(strconv.Itoa(facilityLocal0*8 + severity(e.Level)))
@@ -49,7 +50,7 @@ func Format(e store.Entry, src store.Source) []byte {
 	b.WriteByte(' ')
 	b.WriteString(nameField(src.Component, maxAppName))
 	b.WriteString(" - - ")
-	b.WriteString(structuredData(e))
+	b.WriteString(structuredData(e, name))
 	b.WriteByte(' ')
 	b.WriteString(text(e.Message))
 	return []byte(b.String())
@@ -99,10 +100,10 @@ func nameField(s string, limit int) string {
 	return b.String()
 }
 
-func structuredData(e store.Entry) string {
+func structuredData(e store.Entry, name string) string {
 	category := strings.TrimPrefix(pb.LogCategory(e.Category).String(), "LOG_CATEGORY_")
 	hasCategory := pb.LogCategory(e.Category) != pb.LogCategory_LOG_CATEGORY_UNSPECIFIED
-	if !hasCategory && e.Logger == "" {
+	if !hasCategory && e.Logger == "" && name == "" {
 		return "-"
 	}
 	var b strings.Builder
@@ -112,6 +113,9 @@ func structuredData(e store.Entry) string {
 	}
 	if e.Logger != "" {
 		b.WriteString(` logger="` + escapeParam(e.Logger) + `"`)
+	}
+	if name != "" {
+		b.WriteString(` name="` + escapeParam(name) + `"`)
 	}
 	b.WriteByte(']')
 	return b.String()

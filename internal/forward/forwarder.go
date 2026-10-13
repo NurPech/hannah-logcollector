@@ -42,10 +42,17 @@ type Sources interface {
 	AllSources(ctx context.Context) (map[int64]store.Source, error)
 }
 
+// Names gives an instance the name a person calls it, for a satellite its display name. It is
+// called for every entry, so it must be quick and never fail: an unknown instance is its own name.
+type Names interface {
+	Name(instance string) string
+}
+
 // Forwarder queues entries (Offer) and sends them (Run).
 type Forwarder struct {
 	cfg     Config
 	sources Sources
+	names   Names // nil = no name in the structured data
 
 	mu       sync.Mutex
 	ring     []store.Entry
@@ -70,6 +77,10 @@ func New(cfg Config, sources Sources) *Forwarder {
 		known:   map[int64]store.Source{},
 	}
 }
+
+// SetNames makes the forwarder add the name of the entry's instance to the structured data.
+// Call it before Run.
+func (f *Forwarder) SetNames(n Names) { f.names = n }
 
 // Offer queues an entry. It never blocks: if the queue is full the oldest entry is dropped.
 // Safe to call from several goroutines.
@@ -215,7 +226,11 @@ func (f *Forwarder) encode(ctx context.Context, batch []store.Entry) encoded {
 		if !ok {
 			continue
 		}
-		line := Format(e, src)
+		name := ""
+		if f.names != nil {
+			name = f.names.Name(src.Instance)
+		}
+		line := Format(e, src, name)
 		if f.cfg.Network == "tcp" {
 			line = Frame(line)
 		}

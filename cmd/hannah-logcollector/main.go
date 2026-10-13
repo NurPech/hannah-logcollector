@@ -19,6 +19,7 @@ import (
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/config"
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/forward"
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/hannah"
+	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/names"
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/server"
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/store"
 	"dev.kernstock.net/gessinger/voice/hannah-logcollector/internal/syslog"
@@ -79,6 +80,14 @@ func main() {
 		close(forwardDone)
 	} else {
 		fwd := forward.New(forward.Config{Network: cfg.Forward.Protocol, Address: cfg.Forward.Address}, st)
+		// The display names of the satellites, asked from Hannah Core, go into the structured data
+		// so a receiver can label and alert by "Test01" instead of a MAC. Until Core answered, or
+		// without a Hannah address, a satellite is its own name.
+		satelliteNames := names.New()
+		if cfg.Hannah.Address != "" {
+			go satelliteNames.Run(ctx, hannah.NewSatellites(cfg.Hannah.Address).Names)
+		}
+		fwd.SetNames(satelliteNames)
 		writer.SetTap(fwd.Offer)
 		slog.Info("forwarding entries as syslog", "target", cfg.Forward.Address, "protocol", cfg.Forward.Protocol)
 		go func() { fwd.Run(forwardCtx); close(forwardDone) }()

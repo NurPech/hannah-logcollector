@@ -232,3 +232,62 @@ func TestWhatIsLeftIsSentWhenTheForwarderStops(t *testing.T) {
 
 	assert.Len(t, target.waitFor(t, 51), 51)
 }
+
+// namesOf names a few instances, the rest is its own name like the real registry does.
+type namesOf map[string]string
+
+func (n namesOf) Name(instance string) string {
+	if name, ok := n[instance]; ok {
+		return name
+	}
+	return instance
+}
+
+func runWithNames(t *testing.T, cfg Config, names Names) *Forwarder {
+	t.Helper()
+	f := New(cfg, sources)
+	f.SetNames(names)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { f.Run(ctx); close(done) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("the forwarder did not stop")
+		}
+	})
+	return f
+}
+
+func TestForwardsTheDisplayNameOfTheSatellite(t *testing.T) {
+	target := listenTCP(t, "127.0.0.1:0")
+	f := runWithNames(t, Config{Network: "tcp", Address: target.addr()}, namesOf{"e072a1d01adc": "Schlafzimmer01"})
+
+	f.Offer(line(1))
+
+	got := target.waitFor(t, 1)
+	assert.Contains(t, got[0], `name="Schlafzimmer01"`)
+	msg, err := syslog.Parse([]byte(got[0]))
+	require.NoError(t, err)
+	assert.Equal(t, "e072a1d01adc", msg.Hostname, "the hostname stays the ID: it is what a receiver identifies by")
+}
+
+func TestForwardsTheIDAsTheNameWhenThereIsNoDisplayName(t *testing.T) {
+	target := listenTCP(t, "127.0.0.1:0")
+	f := runWithNames(t, Config{Network: "tcp", Address: target.addr()}, namesOf{})
+
+	f.Offer(line(1))
+
+	assert.Contains(t, target.waitFor(t, 1)[0], `name="e072a1d01adc"`)
+}
+
+func TestForwardsNoNameWhenNoNamesAreSet(t *testing.T) {
+	target := listenTCP(t, "127.0.0.1:0")
+	f, _, _ := run(t, Config{Network: "tcp", Address: target.addr()})
+
+	f.Offer(line(1))
+
+	assert.NotContains(t, target.waitFor(t, 1)[0], "name=")
+}

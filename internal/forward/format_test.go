@@ -27,7 +27,7 @@ func entry(level pb.LogLevel, message string) store.Entry {
 }
 
 func TestFormat(t *testing.T) {
-	got := string(Format(entry(pb.LogLevel_LOG_LEVEL_INFO, "I (12345) wifi: connected"), satellite))
+	got := string(Format(entry(pb.LogLevel_LOG_LEVEL_INFO, "I (12345) wifi: connected"), satellite, ""))
 	assert.Equal(t,
 		`<134>1 2026-10-06T12:30:05.250Z e072a1d01adc hannah-esp - - [hannah@32473 category="GENERAL"] I (12345) wifi: connected`,
 		got)
@@ -36,7 +36,7 @@ func TestFormat(t *testing.T) {
 func TestFormatIsReadBackByTheReceiver(t *testing.T) {
 	e := entry(pb.LogLevel_LOG_LEVEL_ERROR, "boom: i2s failed")
 	e.Logger = "hannah.stt"
-	msg, err := syslog.Parse(Format(e, store.Source{Component: "core", Instance: "psrvhva01"}))
+	msg, err := syslog.Parse(Format(e, store.Source{Component: "core", Instance: "psrvhva01"}, ""))
 	require.NoError(t, err)
 
 	assert.Equal(t, 3, msg.Severity)
@@ -64,7 +64,7 @@ func TestHostnameAndAppNameAreMadeUsable(t *testing.T) {
 	assert.Equal(t, "-", nameField("", 255))
 	assert.Equal(t, strings.Repeat("a", 48), nameField(strings.Repeat("a", 100), 48))
 	// A name with a space would shift every field behind it.
-	msg, err := syslog.Parse(Format(entry(pb.LogLevel_LOG_LEVEL_INFO, "x"), store.Source{Component: "my app", Instance: "my host"}))
+	msg, err := syslog.Parse(Format(entry(pb.LogLevel_LOG_LEVEL_INFO, "x"), store.Source{Component: "my app", Instance: "my host"}, ""))
 	require.NoError(t, err)
 	assert.Equal(t, "my_app", msg.AppName)
 	assert.Equal(t, "my_host", msg.Hostname)
@@ -73,7 +73,7 @@ func TestHostnameAndAppNameAreMadeUsable(t *testing.T) {
 func TestStructuredDataEscapesWhatBreaksAParameter(t *testing.T) {
 	e := entry(pb.LogLevel_LOG_LEVEL_INFO, "x")
 	e.Logger = `a"b]c\d`
-	line := string(Format(e, satellite))
+	line := string(Format(e, satellite, ""))
 	assert.Contains(t, line, `logger="a\"b\]c\\d"`)
 
 	msg, err := syslog.Parse([]byte(line))
@@ -82,18 +82,18 @@ func TestStructuredDataEscapesWhatBreaksAParameter(t *testing.T) {
 }
 
 func TestNoStructuredDataWithoutCategoryAndLogger(t *testing.T) {
-	line := string(Format(store.Entry{TimestampMs: 0, Message: "x"}, satellite))
+	line := string(Format(store.Entry{TimestampMs: 0, Message: "x"}, satellite, ""))
 	assert.Contains(t, line, " - - - x", "PROCID, MSGID and the structured data are all nil")
 }
 
 func TestTrailingLineBreakIsRemovedAndInnerOnesStay(t *testing.T) {
-	line := string(Format(entry(pb.LogLevel_LOG_LEVEL_ERROR, "Traceback:\n  File x\n"), satellite))
+	line := string(Format(entry(pb.LogLevel_LOG_LEVEL_ERROR, "Traceback:\n  File x\n"), satellite, ""))
 	assert.True(t, strings.HasSuffix(line, "Traceback:\n  File x"))
 }
 
 func TestLongMessageIsCutAtACharacterBoundary(t *testing.T) {
 	long := strings.Repeat("ä", 10000) // two bytes each
-	line := Format(entry(pb.LogLevel_LOG_LEVEL_INFO, long), satellite)
+	line := Format(entry(pb.LogLevel_LOG_LEVEL_INFO, long), satellite, "")
 
 	assert.LessOrEqual(t, len(line), 8192, "below what Alloy accepts by default")
 	assert.True(t, utf8.Valid(line))
@@ -103,4 +103,30 @@ func TestLongMessageIsCutAtACharacterBoundary(t *testing.T) {
 func TestFrameCountsOctets(t *testing.T) {
 	assert.Equal(t, "3 abc", string(Frame([]byte("abc"))))
 	assert.Equal(t, "5 ä\n\nx", string(Frame([]byte("ä\n\nx"))), "the count is in bytes and a line break is fine")
+}
+
+func TestFormatCarriesTheName(t *testing.T) {
+	got := string(Format(entry(pb.LogLevel_LOG_LEVEL_INFO, "boot"), satellite, "Test02"))
+	assert.Equal(t,
+		`<134>1 2026-10-06T12:30:05.250Z e072a1d01adc hannah-esp - - [hannah@32473 category="GENERAL" name="Test02"] boot`,
+		got)
+}
+
+func TestFormatCarriesTheNameEvenWithoutCategoryAndLogger(t *testing.T) {
+	got := string(Format(store.Entry{TimestampMs: 0, Message: "x"}, satellite, "Test02"))
+	assert.Contains(t, got, ` - - [hannah@32473 name="Test02"] x`)
+}
+
+func TestFormatEscapesTheName(t *testing.T) {
+	// A display name is free text: a quote, a closing bracket or a backslash must not end the parameter.
+	got := string(Format(entry(pb.LogLevel_LOG_LEVEL_INFO, "boot"), satellite, `Küche "1"]\`))
+	assert.Contains(t, got, `name="Küche \"1\"\]\\"]`)
+
+	msg, err := syslog.Parse([]byte(got))
+	require.NoError(t, err)
+	assert.Equal(t, "boot", msg.Text)
+}
+
+func TestFormatWithoutANameHasNoNameParameter(t *testing.T) {
+	assert.NotContains(t, string(Format(entry(pb.LogLevel_LOG_LEVEL_INFO, "boot"), satellite, "")), "name=")
 }

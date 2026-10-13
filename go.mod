@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/NurPech/hannah-proto-go/v5 v5.4.0
 	github.com/stretchr/testify v1.12.1
-	gitlab.com/gessinger/hannah-grpc-lib/go v0.8.0
+	gitlab.com/gessinger/hannah-grpc-lib/go v0.9.0
 	google.golang.org/grpc v1.84.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.60.1
